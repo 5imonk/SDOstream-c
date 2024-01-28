@@ -130,6 +130,7 @@ class SDOcluststream {
     typedef typename MapType::iterator MapIterator;
     MapType observers;
 
+    // Structure that represents a Cluster (Container of IndexIteratorPairs)
     struct IndexIteratorPair {
         MapIterator it;
         int index; // Derived from it->index
@@ -155,11 +156,12 @@ class SDOcluststream {
         }
     };
 
-    typedef std::unordered_set<IndexIteratorPair,IndexIteratorHash,IndexIteratorEqual> IteratorMapType;
+    typedef std::unordered_set<IndexIteratorPair,IndexIteratorHash,IndexIteratorEqual> IteratorMapType; // represents Iterators of Cluster Observers
     
     typedef std::unordered_map<int, std::pair<IteratorMapType,FloatType>> ClusterMapType; // color, <Cluster, time_added>
     ClusterMapType clusters; 
-   
+    
+    // Following Structure counts colors of Observers of a Cluster and maintains it ordered (descending)
     struct ColorCount {
         int color;
         int count;
@@ -189,6 +191,7 @@ class SDOcluststream {
         >
     > ColorCountMapType;  
 
+    // Structures for Distance Matrix
     struct IndexDistancePair {
         MapIterator it;
         int index; // Derived from it->index
@@ -299,30 +302,13 @@ class SDOcluststream {
                 if (color == 0) {
                     color = ++last_color;
                 }
-            
-
-                // std::cout << "Color: " << color << ", " << last_color << std::endl;
-
-                // tag color
+                
                 for (const IndexIteratorPair& indexIteratorPair : cluster) {
                     const MapIterator& it2 = indexIteratorPair.it;
                     if (it2->color != color) {
                         it2->color = color;
                     }
-                    // std::cout << it2->index << " ";
                 }
-                // std::cout << std::endl;
-
-                // untag color, not necessary
-                // auto cit = clusters.find(color);
-                // if (cit != clusters.end()) {
-                //     for (const IndexIteratorPair& indexIteratorPair : (cit->second).first) {
-                //         const MapIterator& it2 = indexIteratorPair.it;
-                //         if (it2->time_cluster_touched < now) {
-                //             it2->color = 0;
-                //         }
-                //     }
-                // }
 
                 if (color > 0) {
                     clusters[color] = std::make_pair(cluster, now);
@@ -357,41 +343,7 @@ class SDOcluststream {
         obs_scaler[0] = prob0;
     }
 
-    // void setObsScaler() {
-
-    //     FloatType prob0 = 1.0f;
-    //     int active_threshold = (observer_cnt-1) * active_observers;
-    //     for (int i = neighbor_cnt; i > 0; --i) {
-    //         prob0 *= static_cast<FloatType>(i) / ((active_threshold+2) - i);
-    //     }
-
-    //     obs_scaler[observer_cnt] = 1.0f;
-    //     FloatType prob = prob0;
-
-    //     int current_neighbor_cnt = neighbor_cnt;
-        
-    //     for (int i = observer_cnt - 1; i > 0; --i) {
-
-    //         int active_threshold_target = (i-1) * active_observers;
-    //         while (active_threshold > active_threshold_target) {    
-    //             active_threshold--;
-    //             prob *= static_cast<FloatType>(active_threshold+2) / static_cast<FloatType>((active_threshold+2)-current_neighbor_cnt);
-    //             // std::cout << "prob: " << prob0 / prob << std::endl;
-                
-    //             int current_neighbor_cnt_target = (static_cast<FloatType>(i-1)) / static_cast<FloatType>((observer_cnt-1)) * neighbor_cnt + 1;   
-    //             // std::cout << "Neighbor cnt: " << current_neighbor_cnt << "Active Threshold" << active_threshold << std::endl;
-    //             while (current_neighbor_cnt > current_neighbor_cnt_target) {      
-    //                 prob *= static_cast<FloatType>((active_threshold+2)-current_neighbor_cnt) / static_cast<FloatType>(current_neighbor_cnt);
-
-    //                 current_neighbor_cnt--;
-    //                 // std::cout << "prob x: " << prob0 / prob << std::endl;
-    //             }
-    //         }
-    //         obs_scaler[i] = prob0 / prob;
-    //     }
-    //     obs_scaler[0] = prob0;
-    // }
-
+    // Calc Threshold for Graph Edge Cutting
     FloatType UpdateH(int keyIndex, size_t n, const MapIterator& last_active_observer) {
         // Check if the key 'index' exists in the unordered_map
         auto it = distance_matrix.find(keyIndex);
@@ -438,6 +390,7 @@ class SDOcluststream {
         return FloatType(); // You can return a default value or an appropriate error handling strategy
     }
 
+    // Maintain Distance Matrix
     bool AddIndexDistancePairToMap(int keyIndex, const IndexDistancePair& pair) {
         // Find the map associated with the given key 'index'
         auto it = distance_matrix.find(keyIndex);
@@ -452,6 +405,7 @@ class SDOcluststream {
         return false; // Adding unsuccessful
     }
 
+    // Maintain Distance Matrix
     bool RemoveIndexDistancePairFromMap(int keyIndex, int pairIndex) {
         // Find the map associated with the given key 'index'
         auto it = distance_matrix.find(keyIndex);
@@ -475,7 +429,7 @@ class SDOcluststream {
 
         return false; // Removal unsuccessful
     }
-
+    
     bool HasEdge(FloatType distance, const MapIterator& it) {
         return  distance < (zeta * h[it->index] + (1 - zeta) * global_h);
     }
@@ -521,6 +475,7 @@ class SDOcluststream {
         }
     }
 
+    // Main method
     int fitPredict_impl(const Vector<FloatType>& data, FloatType now, bool fit_only) {
         FloatType score = 0; // returned for first seen sample
         std::unordered_map<int, FloatType> label_vector;
@@ -550,6 +505,8 @@ class SDOcluststream {
         for (auto it = observers.begin(); it != observers.end(); ++it) {
             // std::cout << "(" << it->index << ", " << it->color << ") ";
 
+            // sorts clusters by size, if tied by size of most dominant color of its observers, and if then tied by lower dominant color
+            // idea clusters are sorted by being most crisply defined such that label is inherited easily
             auto cmp_cluster = [](const std::pair<IteratorMapType, ColorCountMapType>& a, const std::pair<IteratorMapType, ColorCountMapType>& b) -> bool {
                 if (a.first.size() == b.first.size())
                 {
@@ -582,8 +539,8 @@ class SDOcluststream {
                         }
                         if (it1->time_cluster_touched < now) { 
                             IteratorMapType cluster;
-                            ColorCountMapType color_count;                            
-                            DFS(cluster, color_count, it1, last_active_observer, now);                            
+                            ColorCountMapType color_count; // counts the known labels of observers of the cluster                            
+                            DFS(cluster, color_count, it1, last_active_observer, now); // find the connected component (cluster)                  
                             sorted_clusters.push_back(std::make_pair(cluster, color_count));
                         }
                     }       
@@ -662,14 +619,11 @@ class SDOcluststream {
             }
             i++;
         }
-        // std::cout << std::endl;
-        // coutCounter++;
-        // std::cout << "Counter Value: " << coutCounter << std::endl; // 1
 
+        // update Observer observations of nearest Observers
         FloatType observations_nearest_sum = 0;
         int j = 0;
         auto observed = nearest.template get<1>().begin();
-        // std::cout << "Obs scaler / active threshold: " << obs_scaler[observers.size()] << " / " << active_threshold << std::endl;
         while (observed != nearest.template get<1>().end() && j < current_neighbor_cnt) {
             MapIterator it = observed->it;    
 
@@ -691,6 +645,7 @@ class SDOcluststream {
             ++observed;        
         }
         
+        // add new Observer randomly
         bool add_as_observer = 
             observers.empty() ||
             (rng() - rng.min()) * observations_sum * (last_index - last_added_index) < sampling_prefactor * (rng.max() - rng.min()) * observations_nearest_sum * (now - last_added_time) ;
